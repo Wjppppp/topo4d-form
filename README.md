@@ -3,7 +3,6 @@
 Interactive FastHTML app to build a STAC Item with the [topo4d](https://github.com/tum-rsa/topo4d) extension using the local schema.json. It live-validates and lets you copy/download the JSON.
 
 ![topo4d_form_screenshot](./assets/topo4d_form.png)
-*A screenshot of the topo4d metadata online form*
 
 ## Build
 
