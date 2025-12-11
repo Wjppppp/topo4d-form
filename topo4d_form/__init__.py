@@ -1,0 +1,1 @@
+TOPO4D_SCHEMA_URL = "https://tum-rsa.github.io/topo4d/v0.2.0/schema.json"

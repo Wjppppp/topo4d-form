@@ -3,19 +3,12 @@ import json
 import os
 
 from .styles import *
-from .validation import *
+from .validation import model_required_keys
 from .make_item import (
-    construct_ml_model_properties,
+    construct_topo4d_properties,
     construct_assets,
     create_pystac_item,
 )
-from stac_model.input import ResizeType
-from typing import get_args
-from stac_model.base import TaskEnum
-
-
-resize_type_values = [value for value in get_args(get_args(ResizeType)[0])]
-tasks = [task.value for task in TaskEnum]
 
 
 ######################
@@ -48,7 +41,6 @@ def inputTemplate(
         ),
         Div(f"{error_msg}", style="color: red;") if error_msg else None,
     )
-
 
 def inputListTemplate(
     label,
@@ -86,15 +78,85 @@ def inputListTemplate(
     )
 
 
-def mk_opts(nm, cs):
+def inputArrayTemplate(
+    label,
+    name,
+    rows=3,
+    cols=3,
+    placeholder=None,
+    values=None,
+    error_msg=None,
+    input_type="number",
+    canValidateInline=False,
+):
+    # Normalize values to a rows x cols 2D list of strings
+    total = rows * cols
+    flat_vals = []
+    if isinstance(values, list):
+        # allow [[...], [...]] or flat list
+        if values and isinstance(values[0], list):
+            for r in range(rows):
+                row_vals = values[r] if r < len(values) else []
+                for c in range(cols):
+                    v = row_vals[c] if c < len(row_vals) else ""
+                    flat_vals.append(v)
+        else:
+            flat_vals = list(values)[:total] + [""] * max(0, total - len(values))
+    else:
+        flat_vals = [""] * total
+
+    grid_style = (
+        "display: grid; gap: 8px; "
+        f"grid-template-columns: repeat({cols}, minmax(60px, 1fr)); max-width: 600px;"
+    )
+    # Build inputs row-major with names like <name>_r_c (1-based)
+    inputs = []
+    idx = 0
+    for r in range(1, rows + 1):
+        for c in range(1, cols + 1):
+            val = flat_vals[idx] if idx < len(flat_vals) else ""
+            idx += 1
+            inputs.append(
+                Input(
+                    name=f"{name.lower()}_{r}_{c}",
+                    id=f"{name.lower()}_{r}_{c}",
+                    placeholder=placeholder,
+                    type=input_type,
+                    value=val,
+                    hx_post=f"/{name.lower()}" if canValidateInline else None,
+                    style="width: 100%;",
+                )
+            )
+
+    return Div(
+        hx_target="this",
+        hx_swap="outerHTML",
+        cls=f"{error_msg if error_msg else 'Valid'}",
+        style=control_container_style,
+    )(
+        labelDecoratorTemplate(Label(label), name in model_required_keys),
+        Div(*inputs, style=grid_style),
+        Div(f"{error_msg}", style="color: red;") if error_msg else None,
+    )
+
+
+def mk_opts(nm, cs, selected=None):
     return (
-        Option(f"-- select {nm} --", disabled=True, selected=True, value=""),
-        *map(lambda c: Option(c, value=c), cs),
+        Option(
+            f"-- select {nm} --",
+            disabled=True,
+            selected=(selected is None),
+            value="",
+        ),
+        *(
+            Option(c, value=c, selected=(c == selected))
+            for c in cs
+        ),
     )
 
 
 def selectEnumTemplate(
-    label, options, name, hx_target=None, error_msg=None, canValidateInline=False
+    label, options, name, hx_target=None, error_msg=None, canValidateInline=False, value=None
 ):
     return Div(
         hx_target="this",
@@ -104,7 +166,7 @@ def selectEnumTemplate(
     )(
         labelDecoratorTemplate(Label(label), name in model_required_keys),
         Select(
-            *mk_opts(name, options),
+            *mk_opts(name, options, selected=value),
             name=name,
             id=name,
             hx_post=f"/{name.lower()}" if canValidateInline else None,
@@ -159,103 +221,32 @@ def trueFalseRadioTemplate(label, name, error_msg=None):
     )
 
 
-def modelInputTemplate(label, name, error_msg=None):
+def relObjectTemplate(label, name, error_msg=None, href="", type_="", title=""):
     return Div(
-        labelDecoratorTemplate(
-            H4(label, style="margin-left: -30px;"), name in model_required_keys
-        ),
+        labelDecoratorTemplate(Label(label), name in model_required_keys),
         inputTemplate(
-            label="Name",
-            name=f"{name}_name",
-            val="",
-            placeholder="A descriptive name for the model input",
+            label="href",
+            name=f"{name}_href",
+            val=href,
+            placeholder="A link to the related object",
             input_type="text",
         ),
         inputTemplate(
-            label="Bands (enter a single comma separated list of values)",
-            name=f"{name}_bands",
-            val="",
-            placeholder="""e.g. B01,B02,B03,B04,B05,B06,B07,B08,B8A,B09,B10,B11,B12""",
+            label="type",
+            name=f"{name}_type",
+            val=type_,
+            placeholder="The media type of the related object",
             input_type="text",
-        ),
-        inputListTemplate(
-            label="Input Dimension Sizes",
-            placeholder="Enter Value",
-            name=f"{name}_shape",
-            error_msg=None,
-            input_type="number",
-        ),
-        inputListTemplate(
-            label="Input Dimension Labels",
-            placeholder="Enter Text Label",
-            name=f"{name}_dim_order",
-            error_msg=None,
-            input_type="text",
-        ),
-        selectEnumTemplate(
-            "Input Data Type",
-            datatypes,
-            f"{name}_data_type",
-            error_msg=None,
-            canValidateInline=False,
-        ),
-        Div(f"{error_msg}", style="color: red;") if error_msg else None,
-        style=f"{control_container_style} margin-left: 30px;",
-    )
-
-
-def mk_input(**kw):
-    return Input(id="new-title", name="title", placeholder="New Todo", **kw)
-
-
-def modelOutputTemplate(label, name, error_msg=None):
-    return Div(
-        labelDecoratorTemplate(
-            H4(label, style="margin-left: -30px;"), name in model_required_keys
         ),
         inputTemplate(
-            label="Name",
-            name=f"{name}_name",
-            val="",
-            placeholder="A descriptive name of the model output content",
-            input_type="text",
-        ),
-        # TODO disabling this because we only work with models that accept single outputs for now but
-        # this should be flipped on and made working in the future
-        # selectCheckboxTemplate(label="Tasks", options=tasks, name=f"{name}_tasks", canValidateInline=False),
-        inputListTemplate(
-            label="Output Dimension Sizes",
-            name=f"{name}_shape",
-            placeholder="Enter Value",
-            error_msg=None,
-            input_type="number",
-        ),
-        # TODO possibly overly restrictive schema, this can't contain numeric characters
-        inputListTemplate(
-            label="Output Dimension Labels",
-            name=f"{name}_dim_order",
-            placeholder="Enter Text Label",
-            error_msg=None,
-            input_type="text",
-        ),
-        selectEnumTemplate(
-            "Output Data Type",
-            datatypes,
-            f"{name}_data_type",
-            error_msg=None,
-            canValidateInline=False,
-        ),
-        # TODO this should be made dynamic so that users can enter an N length list of classes similar to
-        # https://gallery.fastht.ml/start_simple/sqlite_todo/code
-        inputTemplate(
-            label="Classes (enter a single comma separated list of classes)",
-            name=f"{name}_classes",
-            val="",
-            placeholder=''' e.g. "Annual Crop, Forest, Herbaceous Vegetation, Highway, Industrial Buildings, Pasture, Permanent Crop, Residential Buildings, River, SeaLake"''',
+            label="title",
+            name=f"{name}_title",
+            val=title,
+            placeholder="A descriptive title for the related object",
             input_type="text",
         ),
         Div(f"{error_msg}", style="color: red;") if error_msg else None,
-        style=f"{control_container_style} margin-left: 30px;",
+        style=f"{control_container_style} margin-left: 15px;",
     )
 
 
@@ -315,12 +306,14 @@ with open(download_js_file_path, "r") as file:
 
 
 def download_button(item):
-    model_name = item.get("properties", {}).get("mlm:name") if item else None
+    model_name = None
+    if item:
+        model_name = item.get("id") or item.get("title") or item.get("properties", {}).get("topo4d:data_type")
     return Button(
         "Download JSON",
         style="margin-left: 10px;",
         onclick=download_js,
-        data_file_name=f"{model_name if model_name else 'model'}.json",
+        data_file_name=f"{model_name if model_name else 'item'}.json",
         data_file_content=(json.dumps(item, indent=2) if item else ""),
         disabled=(item is None),
     )
@@ -331,11 +324,38 @@ def button_bar(session):
     d = session["stac_format_d"]
     if d:
         try:
-            ml_model_metadata = construct_ml_model_properties(d)
+            ml_model_metadata = construct_topo4d_properties(d)
             assets = construct_assets(d.get("assets"))
-            item = create_pystac_item(ml_model_metadata, assets)
+            item = create_pystac_item(
+                ml_model_metadata,
+                assets,
+                geometry=d.get("geometry"),
+                bbox=d.get("bbox"),
+            )
         except:
             pass
+
+    # Inline upload form as a button
+    upload_form = Form(
+        hx_post="/upload_las",
+        hx_target="#result",
+        hx_encoding="multipart/form-data",
+        style="display: inline-block; margin-left: 10px;",
+    )(
+        Input(
+            type="file",
+            id="lasfile-input",
+            name="lasfile",
+            accept=".las,.laz",
+            style="display:none;",
+            onchange="this.form.requestSubmit()",
+        ),
+        Button(
+            "Upload LAS/LAZ",
+            type="button",
+            onclick="document.getElementById('lasfile-input').click()",
+        ),
+    )
 
     return Div(
         Button(
@@ -343,6 +363,7 @@ def button_bar(session):
         ),
         copy_to_clipboard_button(item),
         download_button(item),
+        upload_form,
         id="button-bar",
         hx_swap_oob="#button_bar",
     )
@@ -360,7 +381,7 @@ def tab_bar(selected):
     return Nav(
         Div(
             A(
-                "MLM Form",
+                "Topo4D Form",
                 href="/",
                 _class="secondary" if selected == "/" else "contrast",
                 style=tab_style["selected"]

@@ -13,3 +13,8 @@ wheels/
 .sesskey
 .python-version
 .vercel
+
+# data
+*.las
+*.laz
+uploads
